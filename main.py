@@ -30,27 +30,8 @@ def setup_global_logger(name="NexusApp"):
     return logger
 
 # --- DATABASE SETUP ---
-from sqlalchemy import create_engine, Column, String, Text, inspect
-from sqlalchemy.orm import sessionmaker, declarative_base
-
-# Get the database URL from environment variables (provided by Render)
-DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    # SQLAlchemy 1.4+ requires "postgresql://" instead of "postgres://"
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-engine = None
-SessionLocal = None
-if DATABASE_URL:
-    engine = create_engine(DATABASE_URL)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-
-class MemoryDB(Base):
-    __tablename__ = "memories"
-    session_id = Column(String, primary_key=True, index=True)
-    memory_json = Column(Text, nullable=False)
+# Importar la configuración de la base de datos desde el archivo centralizado
+from database import SessionLocal, MemoryDB, DATABASE_URL
 
 class Nexus:
     def __init__(self, session_id: str):
@@ -235,11 +216,13 @@ class Nexus:
     def _handle_remember_fact(self, comando):
         dato_a_recordar = comando.replace("recuerda que", "", 1).strip()
         try:
-            clave, valor = dato_a_recordar.split(" es ", 1)
+            # Buscar la primera aparición de " es " o " son " para más flexibilidad
+            separador = " es " if " es " in dato_a_recordar else " son "
+            clave, valor = dato_a_recordar.split(separador, 1)
             self.memoria["datos_aprendidos"][clave.strip()] = valor.strip()
             self._guardar_memoria()
             speech = f"Entendido. He guardado que '{clave.strip()}' es '{valor.strip()}'."
-        except ValueError:
+        except (ValueError, KeyError):
             speech = "Para que recuerde algo, por favor usa el formato: 'recuerda que [dato] es [valor]'."
         return {"speech": speech, "action": {"type": "none"}}
 
