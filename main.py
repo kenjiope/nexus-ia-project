@@ -135,29 +135,24 @@ class Nexus:
             except Exception as e:
                 self.logger.error(f"Error al guardar la memoria local: {e}")
 
-    def pensar_con_gemini(self, pregunta: str) -> str:
-        """
-        Envía una pregunta al modelo de Gemini y devuelve la respuesta.
-        Ahora incluye contexto de la memoria local y el historial de la conversación.
-        """
-        self.logger.debug("Consultando al cerebro externo Gemini...")
-
-        # Construir el historial para el prompt
-        historial_texto = "\n".join([f"{'Usuario' if i % 2 == 0 else 'IA'}: {turno}" for i, turno in enumerate(self.conversation_history[-6:])]) # Últimos 6 turnos
-
-        prompt_completo = (
+    def _build_gemini_prompt(self, pregunta: str) -> str:
+        """Construye el prompt completo para enviar a Gemini, incluyendo contexto y historial."""
+        historial_texto = "\n".join([f"{'Usuario' if i % 2 == 0 else 'IA'}: {turno}" for i, turno in enumerate(self.conversation_history[-6:])])
+        prompt = (
             f"Eres una IA servicial y amigable llamada {self.memoria.get('nombre', 'IA')}.\n"
             f"El nombre de tu usuario es {self.memoria.get('nombre_usuario', 'desconocido')}.\n"
-            f"Estos son algunos datos que has aprendido sobre el usuario y sus preferencias (en formato JSON): "
-            f"{json.dumps(self.memoria.get('datos_aprendidos', {}), ensure_ascii=False, indent=2)}.\n"
+            f"Estos son algunos datos que has aprendido sobre el usuario (en JSON): {json.dumps(self.memoria.get('datos_aprendidos', {}), ensure_ascii=False, indent=2)}.\n"
             f"Usa esta información para que tus respuestas suenen más personales, pero sin ser repetitivo.\n"
-            f"A continuación se muestra el historial reciente de la conversación:\n"
-            f"--- INICIO HISTORIAL ---\n"
-            f"{historial_texto}\n"
-            f"--- FIN HISTORIAL ---\n"
+            f"Historial reciente:\n{historial_texto}\n"
             f"Basado en todo lo anterior, responde a la siguiente pregunta o comentario del usuario de forma natural y útil: \"{pregunta}\"\n"
             f"IMPORTANTE: Si tu respuesta incluye código, formátalo usando bloques de código de Markdown con triple comilla invertida (```)."
         )
+        return prompt.strip()
+
+    def pensar_con_gemini(self, pregunta: str) -> str:
+        """Envía una pregunta al modelo de Gemini y devuelve la respuesta."""
+        self.logger.debug("Consultando al cerebro externo Gemini...")
+        prompt_completo = self._build_gemini_prompt(pregunta)
         try:
             modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
             respuesta = modelo.generate_content(prompt_completo.strip())
@@ -168,20 +163,9 @@ class Nexus:
             return "Lo siento, parece que tengo problemas para contactar a Google Gemini en este momento."
 
     def pensar_con_gemini_stream(self, pregunta: str):
-        """
-        Envía una pregunta a Gemini y devuelve un generador que transmite la respuesta en trozos.
-        """
+        """Envía una pregunta a Gemini y devuelve un generador que transmite la respuesta en trozos."""
         self.logger.debug("Consultando al cerebro externo Gemini en modo streaming...")
-        historial_texto = "\n".join([f"{'Usuario' if i % 2 == 0 else 'IA'}: {turno}" for i, turno in enumerate(self.conversation_history[-6:])])
-        prompt_completo = (
-            f"Eres una IA servicial y amigable llamada {self.memoria.get('nombre', 'IA')}.\n"
-            f"El nombre de tu usuario es {self.memoria.get('nombre_usuario', 'desconocido')}.\n"
-            f"Estos son algunos datos que has aprendido sobre el usuario (en JSON): {json.dumps(self.memoria.get('datos_aprendidos', {}), ensure_ascii=False, indent=2)}.\n"
-            f"Usa esta información para que tus respuestas suenen más personales, pero sin ser repetitivo.\n"
-            f"Historial reciente:\n{historial_texto}\n"
-            f"Responde a la siguiente pregunta del usuario de forma natural y útil: \"{pregunta}\""
-            f"\nIMPORTANTE: Si tu respuesta incluye código, formátalo usando bloques de código de Markdown con triple comilla invertida (```)."
-        )
+        prompt_completo = self._build_gemini_prompt(pregunta)
         try:
             modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
             # Itera sobre los chunks de la respuesta en streaming
@@ -488,6 +472,17 @@ def get_active_sessions():
     """Endpoint de administración para ver las sesiones activas."""
     active_sessions = list(instance_manager._instances.keys())
     return jsonify({"active_sessions": active_sessions, "count": len(active_sessions)})
+
+@app.errorhandler(404)
+def not_found_error(error):
+    """Manejador de errores para rutas no encontradas (404)."""
+    app_logger.warning(f"Se intentó acceder a una ruta no encontrada: {request.path}")
+    return jsonify({
+        "status": "error",
+        "message": "Ruta no encontrada. Por favor, verifica la URL del endpoint.",
+        "requested_path": request.path
+    }), 404
+
 
 if __name__ == '__main__':
     # Este bloque es para ejecutar el servidor localmente para pruebas.
