@@ -46,11 +46,8 @@ class Nexus:
             raise ValueError("No se encontró la clave de API de Google. Por favor, configúrala en el archivo .env")
         genai.configure(api_key=api_key)
 
-        # La memoria se carga desde la DB o un archivo, según la configuración.
-        self.memoria = self._cargar_memoria()
-
-        # Memoria a corto plazo para el contexto de la conversación
-        self.conversation_history = []
+        # La memoria y el historial de conversación se cargan desde la DB o un archivo.
+        self.memoria, self.conversation_history = self._cargar_memoria()
         self.logger.info(f"Cerebro Nexus para la sesión {self.session_id} inicializado y listo.")
 
     def _setup_logging(self):
@@ -69,7 +66,7 @@ class Nexus:
         }
 
     def _cargar_memoria(self):
-        """Carga la memoria desde la base de datos si está configurada, si no, usa archivos locales."""
+        """Carga la memoria y el historial desde la DB si está configurada, si no, usa archivos locales."""
         if DATABASE_URL and SessionLocal:
             # Usar 'with' para asegurar que la sesión de la DB se cierre correctamente
             with SessionLocal() as db:
@@ -77,13 +74,16 @@ class Nexus:
                     db_memory = db.query(MemoryDB).filter(MemoryDB.session_id == self.session_id).first()
                     if db_memory:
                         self.logger.info(f"Memoria encontrada en la DB para la sesión {self.session_id}.")
-                        return json.loads(db_memory.memory_json)
+                        memory = json.loads(db_memory.memory_json)
+                        history = json.loads(db_memory.history_json) if db_memory.history_json else []
+                        self.logger.info(f"Cargados {len(history)} turnos del historial de conversación.")
+                        return memory, history
                     else:
                         self.logger.info(f"No se encontró memoria en la DB para la sesión {self.session_id}. Creando una nueva.")
-                        return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
+                        return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}, []
                 except Exception as e:
-                    self.logger.error(f"Error al cargar memoria desde la DB: {e}. Usando memoria en blanco.", exc_info=True)
-                    return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
+                    self.logger.error(f"Error al cargar memoria desde la DB: {e}. Usando estado en blanco.", exc_info=True)
+                    return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}, []
         else:
             # Fallback to file-based memory for local development
             memoria_archivo = f"memoria_{self.session_id}.json"
@@ -91,39 +91,47 @@ class Nexus:
                 self.logger.info(f"DB no configurada. Usando archivo de memoria local: {memoria_archivo}")
                 try:
                     with open(memoria_archivo, 'r', encoding='utf-8') as archivo:
-                        return json.load(archivo)
+                        data = json.load(archivo)
+                        # El archivo local puede o no tener historial
+                        memory = data.get("memoria", data) # Para compatibilidad con versiones antiguas
+                        history = data.get("historial", [])
+                        return memory, history
                 except json.JSONDecodeError:
                     self.logger.error(f"Error al decodificar el archivo de memoria local '{memoria_archivo}'. Se creará una nueva memoria.")
-                    return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
+                    return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}, []
             else:
                 self.logger.info(f"DB no configurada y no se encontró archivo local. Creando memoria nueva.")
-                return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
+                return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}, []
 
     def _guardar_memoria(self):
-        """Guarda la memoria en la base de datos si está configurada, si no, usa archivos locales."""
+        """Guarda la memoria y el historial en la DB si está configurada, si no, usa archivos locales."""
         if DATABASE_URL and SessionLocal:
             # Usar 'with' para asegurar que la sesión de la DB se cierre correctamente
             with SessionLocal() as db:
                 try:
                     db_memory = db.query(MemoryDB).filter(MemoryDB.session_id == self.session_id).first()
                     memory_string = json.dumps(self.memoria, ensure_ascii=False, indent=4)
+                    history_string = json.dumps(self.conversation_history, ensure_ascii=False, indent=4)
+
                     if db_memory:
                         db_memory.memory_json = memory_string
+                        db_memory.history_json = history_string
                     else:
-                        db_memory = MemoryDB(session_id=self.session_id, memory_json=memory_string)
+                        db_memory = MemoryDB(session_id=self.session_id, memory_json=memory_string, history_json=history_string)
                         db.add(db_memory)
                     db.commit()
-                    self.logger.info(f"Memoria para la sesión {self.session_id} guardada en la DB.")
+                    self.logger.info(f"Memoria e historial para la sesión {self.session_id} guardados en la DB.")
                 except Exception as e:
                     self.logger.error(f"Error al guardar memoria en la DB: {e}", exc_info=True)
                     db.rollback()
         else:
             # Fallback to file-based memory
             memoria_archivo = f"memoria_{self.session_id}.json"
-            self.logger.info(f"DB no configurada. Guardando conocimiento en archivo local: {memoria_archivo}")
+            self.logger.info(f"DB no configurada. Guardando conocimiento e historial en archivo local: {memoria_archivo}")
             try:
+                data_to_save = {"memoria": self.memoria, "historial": self.conversation_history}
                 with open(memoria_archivo, 'w', encoding='utf-8') as archivo:
-                    json.dump(self.memoria, archivo, ensure_ascii=False, indent=4)
+                    json.dump(data_to_save, archivo, ensure_ascii=False, indent=4)
             except Exception as e:
                 self.logger.error(f"Error al guardar la memoria local: {e}")
 
@@ -454,6 +462,8 @@ def interactuar_stream():
             if response_dict.get("speech"):
                 nexus_instance.conversation_history.append(response_dict.get("speech"))
             yield f"data: {json.dumps(response_dict)}\n\n"
+            # Guardar la memoria y el historial al final de la interacción
+            nexus_instance._guardar_memoria()
         else:
             # Si es una consulta general, se transmite la respuesta de Gemini
             full_response_text = ""
@@ -462,10 +472,12 @@ def interactuar_stream():
                 yield f"data: {json.dumps({'speech_chunk': text_chunk})}\n\n"
             if full_response_text:
                 nexus_instance.conversation_history.append(full_response_text)
+            # Guardar la memoria y el historial al final de la interacción
+            nexus_instance._guardar_memoria()
         
         yield f"data: {json.dumps({'done': True})}\n\n"
 
-    return Response(stream_with_context(generate_events()), mimetype='text/event-stream')
+    return Response(generate_events(), mimetype='text/event-stream')
 
 @app.route('/admin/sessions', methods=['GET'])
 def get_active_sessions():
