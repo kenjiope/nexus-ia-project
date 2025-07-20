@@ -12,6 +12,7 @@ import google.generativeai as genai # El cerebro de Google
 # El cliente (móvil) se encargará de la voz.
 import webbrowser # Para abrir el navegador web
 import subprocess # Para ejecutar comandos del sistema
+import sys # Para comprobar el sistema operativo
 from dotenv import load_dotenv # Para cargar nuestra clave de API secreta
 
 # --- LOGGER GLOBAL ---
@@ -178,7 +179,7 @@ class Nexus:
         # --- Lógica de Comandos ---
         # 1. Comandos de configuración inicial (tienen prioridad)
         if not self.memoria.get("nombre"):
-            return {"speech": self._handle_set_ia_name(comando), "action": {"type": "none"}}
+            return self._handle_set_ia_name(comando)
 
         # 2. Despachador de comandos basado en palabras clave
         #    Este diccionario mapea una función (handler) a una lista de palabras clave.
@@ -195,7 +196,7 @@ class Nexus:
 
         for handler, keywords in command_dispatcher.items():
             for keyword in keywords:
-                if comando.startswith(keyword):
+                if keyword in comando:
                     # Los handlers ahora devuelven un diccionario de acción
                     return handler(comando)
 
@@ -253,8 +254,9 @@ class Nexus:
             speech = f"Recuerdo que {clave_a_buscar} es {respuesta_memoria}."
         else:
             speech = f"No tengo información específica sobre '{clave_a_buscar}'. Le preguntaré a mi cerebro externo."
-            respuesta_inteligente = self.pensar_con_gemini(comando)
-            speech += f" {respuesta_inteligente}" # Se puede concatenar o manejar diferente
+            # Pasamos solo el tema de la búsqueda a Gemini, no el comando completo.
+            respuesta_inteligente = self.pensar_con_gemini(clave_a_buscar)
+            speech += f" Según mi información, {respuesta_inteligente}"
         return {"speech": speech, "action": {"type": "none"}}
 
     def _handle_open_website(self, comando):
@@ -281,17 +283,20 @@ class Nexus:
             "bloc de notas": "notepad.exe",
             "explorador de archivos": "explorer.exe"
         }
+
+        # ¡IMPORTANTE! Esta acción solo puede funcionar en el servidor donde corre el backend.
+        # Añadimos una comprobación para evitar errores en entornos no-Windows (como Render).
+        if not sys.platform.startswith('win'):
+            return {
+                "speech": f"Lo siento, la función de ejecutar aplicaciones como '{aplicacion}' solo está disponible cuando opero en un sistema Windows.",
+                "action": {"type": "none"}
+            }
+
         for app_name, executable in mapa_apps.items():
             if app_name in aplicacion:
-                # Esta acción sigue siendo específica del servidor, pero la estructuramos para el futuro.
-                # Un cliente móvil podría interpretar "execute_app" para abrir una app de Android/iOS.
-                # Por ahora, la ejecutamos en el servidor para mantener la funcionalidad.
                 self.logger.info(f"Ejecutando '{executable}' en el servidor.")
                 subprocess.Popen([executable])
-                return {
-                    "speech": f"Ejecutando {app_name} en el dispositivo servidor.",
-                    "action": {"type": "execute_app", "payload": {"app_name": app_name}}
-                }
+                return {"speech": f"Ejecutando {app_name}.", "action": {"type": "none"}}
         
         # Si no se encuentra la app, se devuelve una respuesta sin acción.
         return {
