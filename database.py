@@ -18,4 +18,4 @@ class MemoryDB(Base):
     __tablename__ = "memories"
     session_id = Column(String, primary_key=True, index=True)
     memory_json = Column(Text, nullable=False)
-
+    history_json = Column(Text, nullable=True) # Columna para el historial de chat
