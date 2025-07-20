@@ -425,13 +425,3 @@ if __name__ == '__main__':
     print("Iniciando servidor de desarrollo de Flask en http://127.0.0.1:5000")
     print("NOTA: Este modo es para pruebas. En producción, se usará Gunicorn.")
     app.run(host="0.0.0.0", port=5000, debug=True)
-
-
-# Inicializa la aplicación (por ejemplo, crea las tablas de la base de datos si es necesario)
-def init_app():
-    if DATABASE_URL and engine:
-        app_logger.info("Configuración de base de datos detectada.")
-        Base.metadata.create_all(bind=engine, checkfirst=True)
-        app_logger.info("Tablas de la base de datos verificadas/creadas.")
-
-init_app()

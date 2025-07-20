@@ -59,6 +59,8 @@
     async function interactWithNexus(command) {
         addMessage(command, 'user');
         commandInput.value = '';
+        commandInput.disabled = true;
+        commandForm.querySelector('button').disabled = true;
         loader.style.display = 'block';
 
         try {
@@ -86,7 +88,10 @@
         } catch (error) {
             addMessage(`Error de conexión: ${error.message}`, 'ia');
         } finally {
+            commandInput.disabled = false;
+            commandForm.querySelector('button').disabled = false;
             loader.style.display = 'none';
+            commandInput.focus(); // Pone el cursor listo para el siguiente comando
         }
     }
 
@@ -96,6 +101,8 @@
              addMessage('Hola. Por favor, configura la URL de la API en el archivo index.html para conectar con el cerebro de Nexus.', 'ia');
              return;
         }
+        commandInput.disabled = true;
+        commandForm.querySelector('button').disabled = true;
         loader.style.display = 'block';
         try {
             const response = await fetch(`${API_BASE_URL}/saludo`, {
@@ -106,7 +113,10 @@
         } catch (error) {
             addMessage(`No se pudo conectar con el cerebro de Nexus. Asegúrate de que el servidor esté en línea y la URL sea correcta.`, 'ia');
         } finally {
+            commandInput.disabled = false;
+            commandForm.querySelector('button').disabled = false;
             loader.style.display = 'none';
+            commandInput.focus();
         }
     }
 
