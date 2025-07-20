@@ -407,6 +407,9 @@ def interactuar():
         if respuesta.get("speech"):
             nexus_instance.conversation_history.append(respuesta.get("speech"))
 
+        # Guardar la memoria y el historial al final de la interacción
+        nexus_instance._guardar_memoria()
+
         nexus_instance.logger.info(f"Respuesta generada: {respuesta}")
         return jsonify(respuesta)
 
@@ -477,7 +480,7 @@ def interactuar_stream():
         
         yield f"data: {json.dumps({'done': True})}\n\n"
 
-    return Response(generate_events(), mimetype='text/event-stream')
+    return Response(stream_with_context(generate_events()), mimetype='text/event-stream')
 
 @app.route('/admin/sessions', methods=['GET'])
 def get_active_sessions():
