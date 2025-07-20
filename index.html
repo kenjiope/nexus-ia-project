@@ -7,14 +7,26 @@
     <style>
         body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .chat-container { width: 90%; max-width: 600px; height: 95%; background-color: #1e1e1e; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-        .conversation { flex-grow: 1; padding: 20px; overflow-y: auto; }
-        .message { margin-bottom: 15px; padding: 10px 15px; border-radius: 18px; max-width: 80%; line-height: 1.4; }
-        .user-message { background-color: #373737; align-self: flex-end; margin-left: auto; }
-        .ia-message { background-color: #004d40; align-self: flex-start; }
+        .conversation { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; scroll-behavior: smooth; }
+        .message-container { display: flex; max-width: 85%; align-items: flex-end; gap: 10px; }
+        .message { padding: 10px 15px; border-radius: 18px; line-height: 1.4; }
+        .user-message .message { background-color: #373737; }
+        .ia-message .message { background-color: #004d40; }
+        .user-message { align-self: flex-end; }
+        .ia-message { align-self: flex-start; }
+        .avatar { width: 32px; height: 32px; border-radius: 50%; background-color: #00796b; flex-shrink: 0; }
         #command-form { display: flex; padding: 10px; border-top: 1px solid #373737; }
         #command-input { flex-grow: 1; background-color: #373737; border: none; color: #e0e0e0; padding: 12px; border-radius: 20px; outline: none; }
         #command-form button { background-color: #00796b; color: white; border: none; padding: 12px 20px; border-radius: 20px; margin-left: 10px; cursor: pointer; }
-        .loader { text-align: center; padding: 10px; }
+        #command-form button:disabled { background-color: #555; cursor: not-allowed; }
+        .typing-indicator { display: flex; align-items: center; gap: 5px; padding: 10px 0; }
+        .typing-indicator span { width: 8px; height: 8px; background-color: #888; border-radius: 50%; animation: bounce 1.4s infinite both; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
     </style>
 </head>
 <body>
@@ -23,7 +35,12 @@
     <div class="conversation" id="conversation">
         <!-- Los mensajes aparecerán aquí -->
     </div>
-    <div id="loader" class="loader" style="display: none;">Pensando...</div>
+    <div id="loader" class="ia-message message-container" style="display: none;">
+        <div class="avatar"></div>
+        <div class="typing-indicator">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
     <form id="command-form">
         <input type="text" id="command-input" placeholder="Habla con Nexus..." autocomplete="off">
         <button type="submit">Enviar</button>
@@ -32,7 +49,7 @@
 
 <script>
     // IMPORTANTE: Reemplaza esta URL cuando despliegues tu backend en Render.
-    const API_BASE_URL = 'URL_DE_TU_APP_EN_RENDER'; // Ejemplo: 'https://nexus-ia.onrender.com'
+    const API_BASE_URL = 'https://nexus-ia-backend.onrender.com'; // Ejemplo: 'https://nexus-ia.onrender.com'
 
     const conversationDiv = document.getElementById('conversation');
     const commandForm = document.getElementById('command-form');
@@ -48,9 +65,18 @@
 
     // Función para añadir mensajes a la pantalla
     function addMessage(text, sender) {
+        const messageContainer = document.createElement('div');
+        messageContainer.className = `message-container ${sender}-message`;
+
+        if (sender === 'ia') {
+            const avatarDiv = document.createElement('div');
+            avatarDiv.className = 'avatar';
+            messageContainer.appendChild(avatarDiv);
+        }
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender}-message`;
+        messageDiv.className = 'message';
         messageDiv.textContent = text;
+        messageContainer.appendChild(messageDiv);
         conversationDiv.appendChild(messageDiv);
         conversationDiv.scrollTop = conversationDiv.scrollHeight; // Auto-scroll
     }
