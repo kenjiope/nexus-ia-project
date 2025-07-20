@@ -79,20 +79,19 @@ class Nexus:
     def _cargar_memoria(self):
         """Carga la memoria desde la base de datos si está configurada, si no, usa archivos locales."""
         if DATABASE_URL and SessionLocal:
-            db = SessionLocal()
-            try:
-                db_memory = db.query(MemoryDB).filter(MemoryDB.session_id == self.session_id).first()
-                if db_memory:
-                    self.logger.info(f"Memoria encontrada en la DB para la sesión {self.session_id}.")
-                    return json.loads(db_memory.memory_json)
-                else:
-                    self.logger.info(f"No se encontró memoria en la DB para la sesión {self.session_id}. Creando una nueva.")
+            # Usar 'with' para asegurar que la sesión de la DB se cierre correctamente
+            with SessionLocal() as db:
+                try:
+                    db_memory = db.query(MemoryDB).filter(MemoryDB.session_id == self.session_id).first()
+                    if db_memory:
+                        self.logger.info(f"Memoria encontrada en la DB para la sesión {self.session_id}.")
+                        return json.loads(db_memory.memory_json)
+                    else:
+                        self.logger.info(f"No se encontró memoria en la DB para la sesión {self.session_id}. Creando una nueva.")
+                        return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
+                except Exception as e:
+                    self.logger.error(f"Error al cargar memoria desde la DB: {e}. Usando memoria en blanco.", exc_info=True)
                     return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
-            except Exception as e:
-                self.logger.error(f"Error al cargar memoria desde la DB: {e}. Usando memoria en blanco.", exc_info=True)
-                return {"nombre": "", "nombre_usuario": "", "datos_aprendidos": {}}
-            finally:
-                db.close()
         else:
             # Fallback to file-based memory for local development
             memoria_archivo = f"memoria_{self.session_id}.json"
@@ -111,22 +110,21 @@ class Nexus:
     def _guardar_memoria(self):
         """Guarda la memoria en la base de datos si está configurada, si no, usa archivos locales."""
         if DATABASE_URL and SessionLocal:
-            db = SessionLocal()
-            try:
-                db_memory = db.query(MemoryDB).filter(MemoryDB.session_id == self.session_id).first()
-                memory_string = json.dumps(self.memoria, ensure_ascii=False, indent=4)
-                if db_memory:
-                    db_memory.memory_json = memory_string
-                else:
-                    db_memory = MemoryDB(session_id=self.session_id, memory_json=memory_string)
-                    db.add(db_memory)
-                db.commit()
-                self.logger.info(f"Memoria para la sesión {self.session_id} guardada en la DB.")
-            except Exception as e:
-                self.logger.error(f"Error al guardar memoria en la DB: {e}", exc_info=True)
-                db.rollback()
-            finally:
-                db.close()
+            # Usar 'with' para asegurar que la sesión de la DB se cierre correctamente
+            with SessionLocal() as db:
+                try:
+                    db_memory = db.query(MemoryDB).filter(MemoryDB.session_id == self.session_id).first()
+                    memory_string = json.dumps(self.memoria, ensure_ascii=False, indent=4)
+                    if db_memory:
+                        db_memory.memory_json = memory_string
+                    else:
+                        db_memory = MemoryDB(session_id=self.session_id, memory_json=memory_string)
+                        db.add(db_memory)
+                    db.commit()
+                    self.logger.info(f"Memoria para la sesión {self.session_id} guardada en la DB.")
+                except Exception as e:
+                    self.logger.error(f"Error al guardar memoria en la DB: {e}", exc_info=True)
+                    db.rollback()
         else:
             # Fallback to file-based memory
             memoria_archivo = f"memoria_{self.session_id}.json"
