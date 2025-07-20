@@ -57,6 +57,17 @@ class Nexus:
         """Configura el logger para la IA."""
         self.logger = logging.getLogger(f"NexusIA.{self.session_id}")
 
+        # El despachador de comandos se define una vez por instancia para mayor eficiencia.
+        self.command_dispatcher = {
+            self._handle_set_user_name: ["mi nombre es"],
+            self._handle_get_user_name: ["¿cómo me llamo?", "cuál es mi nombre"],
+            self._handle_remember_fact: ["recuerda que"],
+            self._handle_recall_fact: ["qué sabes sobre", "recuérdame"],
+            self._handle_open_website: ["abre", "inicia"],
+            self._handle_google_search: ["busca en google"],
+            self._handle_exit: ["adiós", "hasta luego", "apágate"],
+        }
+
     def _cargar_memoria(self):
         """Carga la memoria desde la base de datos si está configurada, si no, usa archivos locales."""
         if DATABASE_URL and SessionLocal:
@@ -147,6 +158,30 @@ class Nexus:
             self.logger.error(f"Error al contactar a Google Gemini: {e}", exc_info=True)
             return "Lo siento, parece que tengo problemas para contactar a Google Gemini en este momento."
 
+    def pensar_con_gemini_stream(self, pregunta: str):
+        """
+        Envía una pregunta a Gemini y devuelve un generador que transmite la respuesta en trozos.
+        """
+        self.logger.debug("Consultando al cerebro externo Gemini en modo streaming...")
+        historial_texto = "\n".join([f"{'Usuario' if i % 2 == 0 else 'IA'}: {turno}" for i, turno in enumerate(self.conversation_history[-6:])])
+        prompt_completo = (
+            f"Eres una IA servicial y amigable llamada {self.memoria.get('nombre', 'IA')}.\n"
+            f"El nombre de tu usuario es {self.memoria.get('nombre_usuario', 'desconocido')}.\n"
+            f"Estos son algunos datos que has aprendido sobre el usuario (en JSON): {json.dumps(self.memoria.get('datos_aprendidos', {}), ensure_ascii=False, indent=2)}.\n"
+            f"Usa esta información para que tus respuestas suenen más personales, pero sin ser repetitivo.\n"
+            f"Historial reciente:\n{historial_texto}\n"
+            f"Responde a la siguiente pregunta del usuario de forma natural y útil: \"{pregunta}\""
+        )
+        try:
+            modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # Itera sobre los chunks de la respuesta en streaming
+            for chunk in modelo.generate_content(prompt_completo.strip(), stream=True):
+                if chunk.text:
+                    yield chunk.text
+        except Exception as e:
+            self.logger.error(f"Error al contactar a Google Gemini en modo stream: {e}", exc_info=True)
+            yield "Lo siento, parece que tengo problemas para contactar a Google Gemini en este momento."
+
     def pensar_y_responder(self, comando: str) -> dict:
         """
         Esta es la función principal del "pensamiento".
@@ -160,19 +195,8 @@ class Nexus:
         if not self.memoria.get("nombre"):
             return self._handle_set_ia_name(comando)
 
-        # 2. Despachador de comandos basado en palabras clave
-        #    Este diccionario mapea una función (handler) a una lista de palabras clave.
-        command_dispatcher = {
-            self._handle_set_user_name: ["mi nombre es"],
-            self._handle_get_user_name: ["¿cómo me llamo?", "cuál es mi nombre"],
-            self._handle_remember_fact: ["recuerda que"],
-            self._handle_recall_fact: ["qué sabes sobre", "recuérdame"],
-            self._handle_open_website: ["abre", "inicia"],
-            self._handle_google_search: ["busca en google"],
-            self._handle_exit: ["adiós", "hasta luego", "apágate"],
-        }
-
-        for handler, keywords in command_dispatcher.items():
+        # 2. Usar el despachador de comandos definido en la clase
+        for handler, keywords in self.command_dispatcher.items():
             for keyword in keywords:
                 if keyword in comando:
                     # Los handlers ahora devuelven un diccionario de acción
@@ -305,7 +329,7 @@ class Nexus:
             return "Hola, soy tu nueva IA. Aún no tengo un nombre. Por favor, dime cómo quieres llamarme."
 
 # --- INICIO DE LA API CON FLASK ---
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 
 # Para permitir peticiones desde el navegador (necesario para la app web)
 from flask_cors import CORS # type: ignore
@@ -394,6 +418,52 @@ def saludo_inicial():
     nexus_instance = instance_manager.get_or_create_instance(session_id)
     saludo = nexus_instance.saludar()
     return jsonify({"speech": saludo, "action": {"type": "none"}})
+
+@app.route('/interact-stream', methods=['POST'])
+def interactuar_stream():
+    """Endpoint que transmite la respuesta de la IA usando Server-Sent Events (SSE)."""
+    session_id = request.headers.get('X-Session-ID')
+    if not session_id:
+        return Response("La cabecera 'X-Session-ID' es requerida.", status=400)
+    
+    datos = request.json
+    if not datos or 'comando' not in datos:
+        return Response("El campo 'comando' es requerido.", status=400)
+
+    def generate_events():
+        nexus_instance = instance_manager.get_or_create_instance(session_id)
+        comando = datos['comando'].lower()
+        nexus_instance.logger.info(f"Comando de stream recibido de [{session_id}]: '{comando}'")
+        nexus_instance.conversation_history.append(comando)
+
+        # Comprobar si es un comando de acción específico
+        matched_handler = None
+        for handler, keywords in nexus_instance.command_dispatcher.items():
+            if any(keyword in comando for keyword in keywords):
+                matched_handler = handler
+                break
+        
+        if "ejecuta" in comando:
+            matched_handler = nexus_instance._handle_execute_app
+
+        if matched_handler:
+            # Si es un comando de acción, se ejecuta y se envía una única respuesta
+            response_dict = matched_handler(comando)
+            if response_dict.get("speech"):
+                nexus_instance.conversation_history.append(response_dict.get("speech"))
+            yield f"data: {json.dumps(response_dict)}\n\n"
+        else:
+            # Si es una consulta general, se transmite la respuesta de Gemini
+            full_response_text = ""
+            for text_chunk in nexus_instance.pensar_con_gemini_stream(comando):
+                full_response_text += text_chunk
+                yield f"data: {json.dumps({'speech_chunk': text_chunk})}\n\n"
+            if full_response_text:
+                nexus_instance.conversation_history.append(full_response_text)
+        
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return Response(stream_with_context(generate_events()), mimetype='text/event-stream')
 
 @app.route('/admin/sessions', methods=['GET'])
 def get_active_sessions():

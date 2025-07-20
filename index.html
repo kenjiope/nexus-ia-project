@@ -84,52 +84,82 @@
     // Función para interactuar con la API
     async function interactWithNexus(command) {
         addMessage(command, 'user');
-        commandInput.value = '';
-        commandInput.disabled = true;
-        commandForm.querySelector('button').disabled = true;
-        loader.style.display = 'block';
+    commandInput.value = '';
+    commandInput.disabled = true;
+    commandForm.querySelector('button').disabled = true;
+    loader.style.display = 'flex'; // Muestra el indicador "escribiendo..."
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/interact`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': sessionId
-                },
-                body: JSON.stringify({ comando: command })
-            });
+    // Prepara un nuevo globo de mensaje para la IA, que se llenará poco a poco.
+    const aiMessageContainer = document.createElement('div');
+    aiMessageContainer.className = 'message-container ia-message';
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'avatar';
+    aiMessageContainer.appendChild(avatarDiv);
+    const aiMessageDiv = document.createElement('div');
+    aiMessageDiv.className = 'message';
+    aiMessageContainer.appendChild(aiMessageDiv);
 
-            if (!response.ok) {
-                throw new Error(`Error del servidor: ${response.status}`);
+    let firstChunkReceived = false;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/interact-stream`, { // Usamos el nuevo endpoint
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Session-ID': sessionId },
+            body: JSON.stringify({ comando: command })
+        });
+
+        if (!response.ok) throw new Error(`Error del servidor: ${response.status}`);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop(); // Guarda la última línea, podría estar incompleta.
+
+            for (const line of lines) {
+                if (line.startsWith('data:')) {
+                    const data = JSON.parse(line.substring(5));
+                    
+                    if (!firstChunkReceived) {
+                        loader.style.display = 'none'; // Oculta "escribiendo..."
+                        conversationDiv.appendChild(aiMessageContainer); // Muestra el globo de mensaje
+                        firstChunkReceived = true;
+                    }
+
+                    if (data.speech_chunk) aiMessageDiv.textContent += data.speech_chunk;
+                    if (data.speech) aiMessageDiv.textContent = data.speech; // Para respuestas no-streameadas
+                    if (data.action?.type === 'open_url') window.open(data.action.payload.url, '_blank');
+                    if (data.done) return; // Salimos de la función cuando el servidor lo indica
+                }
             }
-
-            const data = await response.json();
-            addMessage(data.speech, 'ia');
-
-            // Manejar acciones
-            if (data.action && data.action.type === 'open_url') {
-                window.open(data.action.payload.url, '_blank');
-            }
-
-        } catch (error) {
-            addMessage(`Error de conexión: ${error.message}`, 'ia');
-        } finally {
-            commandInput.disabled = false;
-            commandForm.querySelector('button').disabled = false;
-            loader.style.display = 'none';
-            commandInput.focus(); // Pone el cursor listo para el siguiente comando
+            conversationDiv.scrollTop = conversationDiv.scrollHeight;
         }
+    } catch (error) {
+        if (firstChunkReceived && !aiMessageDiv.textContent) aiMessageContainer.remove();
+        addMessage(`Error de conexión: ${error.message}`, 'ia');
+    } finally {
+        loader.style.display = 'none';
+        commandInput.disabled = false;
+        commandForm.querySelector('button').disabled = false;
+        commandInput.focus();
+    }
     }
 
     // Obtener el saludo inicial
     async function getGreeting() {
-        if (API_BASE_URL === 'URL_DE_TU_APP_EN_RENDER') {
-             addMessage('Hola. Por favor, configura la URL de la API en el archivo index.html para conectar con el cerebro de Nexus.', 'ia');
-             return;
+        if (API_BASE_URL.includes('URL_DE_TU_APP_EN_RENDER')) {
+            addMessage('Hola. Por favor, configura la URL de la API en el archivo index.html para conectar con el cerebro de Nexus.', 'ia');
+            return;
         }
         commandInput.disabled = true;
         commandForm.querySelector('button').disabled = true;
-        loader.style.display = 'block';
+        loader.style.display = 'flex';
         try {
             const response = await fetch(`${API_BASE_URL}/saludo`, {
                 headers: { 'X-Session-ID': sessionId }
@@ -145,7 +175,6 @@
             commandInput.focus();
         }
     }
-
     // Event listener para el formulario
     commandForm.addEventListener('submit', (e) => {
         e.preventDefault();
