@@ -376,9 +376,10 @@ def health_check():
         "message": "Bienvenido al servidor de Nexus IA. El cerebro está activo.",
         "endpoints_disponibles": {
             "saludo": "/saludo (GET)",
-            "interactuar": "/interact (POST)"
+            "interactuar": "/interact (POST)",
+            "interactuar_stream": "/interact-stream (POST)"
         },
-        "info": "Todas las peticiones a /saludo e /interact requieren una cabecera 'X-Session-ID'."
+        "info": "Todas las peticiones a los endpoints de interacción requieren una cabecera 'X-Session-ID'."
     })
 
 @app.route('/interact', methods=['POST'])
