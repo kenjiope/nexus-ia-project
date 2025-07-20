@@ -4,14 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nexus IA</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .chat-container { width: 90%; max-width: 600px; height: 95%; background-color: #1e1e1e; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
         .conversation { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; scroll-behavior: smooth; }
         .message-container { display: flex; max-width: 85%; align-items: flex-end; gap: 10px; }
-        .message { padding: 10px 15px; border-radius: 18px; line-height: 1.4; }
+        .message { padding: 10px 15px; border-radius: 18px; line-height: 1.4; word-wrap: break-word; }
         .user-message .message { background-color: #373737; }
-        .ia-message .message { background-color: #004d40; }
+        .ia-message .message { background-color: #004d40; color: #e0e0e0; }
+        .ia-message .message pre {
+            background-color: #111;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            position: relative;
+            border: 1px solid #444;
+        }
+        .ia-message .message code {
+            font-family: 'Courier New', Courier, monospace;
+            color: #f8f8f2;
+        }
+        .copy-button {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: #555;
+            color: white;
+            border: none;
+            padding: 5px 8px;
+            border-radius: 5px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .ia-message .message pre:hover .copy-button {
+            opacity: 1;
+        }
         .user-message { align-self: flex-end; }
         .ia-message { align-self: flex-start; }
         .avatar { width: 32px; height: 32px; border-radius: 50%; background-color: #00796b; flex-shrink: 0; }
@@ -75,10 +104,34 @@
         }
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message';
-        messageDiv.textContent = text;
+        // Para los mensajes del usuario, usamos textContent para evitar inyección de HTML.
+        // Para la IA, usamos innerHTML para renderizar el formato Markdown.
+        if (sender === 'user') {
+            messageDiv.textContent = text;
+        } else {
+            messageDiv.innerHTML = marked.parse(text);
+            addCopyButtons(messageDiv);
+        }
         messageContainer.appendChild(messageDiv);
         conversationDiv.appendChild(messageDiv);
         conversationDiv.scrollTop = conversationDiv.scrollHeight; // Auto-scroll
+    }
+
+    function addCopyButtons(container) {
+        const codeBlocks = container.querySelectorAll('pre');
+        codeBlocks.forEach(block => {
+            const button = document.createElement('button');
+            button.className = 'copy-button';
+            button.textContent = 'Copiar';
+            button.addEventListener('click', () => {
+                const code = block.querySelector('code').innerText;
+                navigator.clipboard.writeText(code).then(() => {
+                    button.textContent = '¡Copiado!';
+                    setTimeout(() => { button.textContent = 'Copiar'; }, 2000);
+                });
+            });
+            block.appendChild(button);
+        });
     }
 
     // Función para interactuar con la API
@@ -100,6 +153,7 @@
     aiMessageContainer.appendChild(aiMessageDiv);
 
     let firstChunkReceived = false;
+    let fullResponseText = ''; // Acumulamos el texto completo aquí
 
     try {
         const response = await fetch(`${API_BASE_URL}/interact-stream`, { // Usamos el nuevo endpoint
@@ -132,10 +186,19 @@
                         firstChunkReceived = true;
                     }
 
-                    if (data.speech_chunk) aiMessageDiv.textContent += data.speech_chunk;
-                    if (data.speech) aiMessageDiv.textContent = data.speech; // Para respuestas no-streameadas
+                    if (data.speech_chunk) {
+                        fullResponseText += data.speech_chunk;
+                        aiMessageDiv.innerHTML = marked.parse(fullResponseText); // Renderizar Markdown en tiempo real
+                    }
+                    if (data.speech) { // Para respuestas no-streameadas
+                        fullResponseText = data.speech;
+                        aiMessageDiv.innerHTML = marked.parse(fullResponseText);
+                    }
                     if (data.action?.type === 'open_url') window.open(data.action.payload.url, '_blank');
-                    if (data.done) return; // Salimos de la función cuando el servidor lo indica
+                    if (data.done) {
+                        addCopyButtons(aiMessageDiv); // Añadir botones al finalizar el stream
+                        return;
+                    }
                 }
             }
             conversationDiv.scrollTop = conversationDiv.scrollHeight;
@@ -148,6 +211,10 @@
         commandInput.disabled = false;
         commandForm.querySelector('button').disabled = false;
         commandInput.focus();
+        // Salvaguarda para añadir botones si el stream termina inesperadamente
+        if (firstChunkReceived) {
+            addCopyButtons(aiMessageDiv);
+        }
     }
     }
 
@@ -165,7 +232,7 @@
                 headers: { 'X-Session-ID': sessionId }
             });
             const data = await response.json();
-            addMessage(data.speech, 'ia');
+            addMessage(data.speech, 'ia'); // La función addMessage ya maneja el Markdown
         } catch (error) {
             addMessage(`No se pudo conectar con el cerebro de Nexus. Asegúrate de que el servidor esté en línea y la URL sea correcta.`, 'ia');
         } finally {

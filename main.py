@@ -147,7 +147,8 @@ class Nexus:
             f"--- INICIO HISTORIAL ---\n"
             f"{historial_texto}\n"
             f"--- FIN HISTORIAL ---\n"
-            f"Basado en todo lo anterior, responde a la siguiente pregunta o comentario del usuario de forma natural y útil: \"{pregunta}\""
+            f"Basado en todo lo anterior, responde a la siguiente pregunta o comentario del usuario de forma natural y útil: \"{pregunta}\"\n"
+            f"IMPORTANTE: Si tu respuesta incluye código, formátalo usando bloques de código de Markdown con triple comilla invertida (```)."
         )
         try:
             modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
@@ -171,6 +172,7 @@ class Nexus:
             f"Usa esta información para que tus respuestas suenen más personales, pero sin ser repetitivo.\n"
             f"Historial reciente:\n{historial_texto}\n"
             f"Responde a la siguiente pregunta del usuario de forma natural y útil: \"{pregunta}\""
+            f"\nIMPORTANTE: Si tu respuesta incluye código, formátalo usando bloques de código de Markdown con triple comilla invertida (```)."
         )
         try:
             modelo = genai.GenerativeModel('gemini-1.5-flash-latest')
