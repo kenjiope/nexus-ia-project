@@ -190,7 +190,6 @@ class Nexus:
             self._handle_recall_fact: ["qué sabes sobre", "recuérdame"],
             self._handle_open_website: ["abre", "inicia"],
             self._handle_google_search: ["busca en google"],
-            self._handle_execute_app: ["ejecuta"],
             self._handle_exit: ["adiós", "hasta luego", "apágate"],
         }
 
@@ -199,15 +198,15 @@ class Nexus:
                 if keyword in comando:
                     # Los handlers ahora devuelven un diccionario de acción
                     return handler(comando)
+        
+        # El comando 'ejecuta' es especial porque solo funciona en Windows.
+        if "ejecuta" in comando:
+            return self._handle_execute_app(comando)
 
-        # 3. Activación por nombre y consulta a Gemini
-        nombre_ia = self.memoria.get("nombre", "").lower()
-        if nombre_ia and comando.startswith(nombre_ia):
-            return self._handle_gemini_query(comando)
-
-        # 4. Si no es un comando conocido ni empieza con el nombre, no hace nada.
-        self.logger.debug(f"Comando ignorado por no ser un comando directo ni empezar con el nombre de la IA: '{comando}'")
-        return {"speech": "", "action": {"type": "none"}}
+        # 3. Si no es un comando conocido, se trata como una consulta general a Gemini.
+        self.logger.debug(f"Comando no reconocido como función interna. Enviando a Gemini: '{comando}'")
+        speech = self.pensar_con_gemini(comando)
+        return {"speech": speech, "action": {"type": "none"}}
 
     # --- Métodos manejadores de comandos (Handlers) ---
     # AHORA DEVUELVEN TEXTO O DICCIONARIOS, NO LLAMAN A self.hablar()
@@ -303,15 +302,6 @@ class Nexus:
             "speech": f"No sé cómo ejecutar '{aplicacion}'. Puedes enseñarme agregándolo al código.",
             "action": {"type": "none"}
         }
-
-    def _handle_gemini_query(self, comando):
-        nombre_ia = self.memoria.get("nombre", "").lower()
-        comando_real = comando[len(nombre_ia):].strip()
-        if not comando_real:
-            speech = f"¡Hola! Soy {self.memoria.get('nombre')}. ¿Qué necesitas?"
-        else:
-            speech = self.pensar_con_gemini(comando_real)
-        return {"speech": speech, "action": {"type": "none"}}
 
     def _handle_exit(self, comando):
         nombre_usuario = self.memoria.get("nombre_usuario", "tú")
