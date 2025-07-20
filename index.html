@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus IA</title>
+    <style>
+        body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .chat-container { width: 90%; max-width: 600px; height: 95%; background-color: #1e1e1e; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        .conversation { flex-grow: 1; padding: 20px; overflow-y: auto; }
+        .message { margin-bottom: 15px; padding: 10px 15px; border-radius: 18px; max-width: 80%; line-height: 1.4; }
+        .user-message { background-color: #373737; align-self: flex-end; margin-left: auto; }
+        .ia-message { background-color: #004d40; align-self: flex-start; }
+        #command-form { display: flex; padding: 10px; border-top: 1px solid #373737; }
+        #command-input { flex-grow: 1; background-color: #373737; border: none; color: #e0e0e0; padding: 12px; border-radius: 20px; outline: none; }
+        #command-form button { background-color: #00796b; color: white; border: none; padding: 12px 20px; border-radius: 20px; margin-left: 10px; cursor: pointer; }
+        .loader { text-align: center; padding: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="conversation" id="conversation">
+        <!-- Los mensajes aparecerán aquí -->
+    </div>
+    <div id="loader" class="loader" style="display: none;">Pensando...</div>
+    <form id="command-form">
+        <input type="text" id="command-input" placeholder="Habla con Nexus..." autocomplete="off">
+        <button type="submit">Enviar</button>
+    </form>
+</div>
+
+<script>
+    // IMPORTANTE: Reemplaza esta URL cuando despliegues tu backend en Render.
+    const API_BASE_URL = 'URL_DE_TU_APP_EN_RENDER'; // Ejemplo: 'https://nexus-ia.onrender.com'
+
+    const conversationDiv = document.getElementById('conversation');
+    const commandForm = document.getElementById('command-form');
+    const commandInput = document.getElementById('command-input');
+    const loader = document.getElementById('loader');
+
+    // Obtener o crear un ID de sesión único para este navegador
+    let sessionId = localStorage.getItem('nexus_session_id');
+    if (!sessionId) {
+        sessionId = crypto.randomUUID();
+        localStorage.setItem('nexus_session_id', sessionId);
+    }
+
+    // Función para añadir mensajes a la pantalla
+    function addMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}-message`;
+        messageDiv.textContent = text;
+        conversationDiv.appendChild(messageDiv);
+        conversationDiv.scrollTop = conversationDiv.scrollHeight; // Auto-scroll
+    }
+
+    // Función para interactuar con la API
+    async function interactWithNexus(command) {
+        addMessage(command, 'user');
+        commandInput.value = '';
+        loader.style.display = 'block';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/interact`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': sessionId
+                },
+                body: JSON.stringify({ comando: command })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Error del servidor: ${response.status}`);
+            }
+
+            const data = await response.json();
+            addMessage(data.speech, 'ia');
+
+            // Manejar acciones
+            if (data.action && data.action.type === 'open_url') {
+                window.open(data.action.payload.url, '_blank');
+            }
+
+        } catch (error) {
+            addMessage(`Error de conexión: ${error.message}`, 'ia');
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    // Obtener el saludo inicial
+    async function getGreeting() {
+        if (API_BASE_URL === 'URL_DE_TU_APP_EN_RENDER') {
+             addMessage('Hola. Por favor, configura la URL de la API en el archivo index.html para conectar con el cerebro de Nexus.', 'ia');
+             return;
+        }
+        loader.style.display = 'block';
+        try {
+            const response = await fetch(`${API_BASE_URL}/saludo`, {
+                headers: { 'X-Session-ID': sessionId }
+            });
+            const data = await response.json();
+            addMessage(data.speech, 'ia');
+        } catch (error) {
+            addMessage(`No se pudo conectar con el cerebro de Nexus. Asegúrate de que el servidor esté en línea y la URL sea correcta.`, 'ia');
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    // Event listener para el formulario
+    commandForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const command = commandInput.value.trim();
+        if (command) {
+            interactWithNexus(command);
+        }
+    });
+
+    // Iniciar la conversación
+    getGreeting();
+</script>
+
+</body>
+</html>
