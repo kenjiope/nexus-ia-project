@@ -78,7 +78,7 @@
 
 <script>
     // IMPORTANTE: Reemplaza esta URL cuando despliegues tu backend en Render.
-    const API_BASE_URL = 'https://nexus-backend-5arg.onrender.com'; // Ejemplo: 'https://nexus-ia.onrender.com'
+    const API_BASE_URL = 'https://nexus-backend-5arg.onrender.com'; // ¡Pega aquí la URL de tu Web Service!
 
     const conversationDiv = document.getElementById('conversation');
     const commandForm = document.getElementById('command-form');
@@ -204,7 +204,8 @@
             conversationDiv.scrollTop = conversationDiv.scrollHeight;
         }
     } catch (error) {
-        if (firstChunkReceived && !aiMessageDiv.textContent) aiMessageContainer.remove();
+        console.error("Error en interactWithNexus:", error); // Log detallado para depuración
+        if (firstChunkReceived && !aiMessageDiv.textContent) aiMessageContainer.remove(); // Limpia un globo de mensaje vacío si se creó
         addMessage(`Error de conexión: ${error.message}`, 'ia');
     } finally {
         loader.style.display = 'none';
@@ -220,8 +221,12 @@
 
     // Obtener el saludo inicial
     async function getGreeting() {
-        if (API_BASE_URL.includes('URL_DE_TU_APP_EN_RENDER')) {
-            addMessage('Hola. Por favor, configura la URL de la API en el archivo index.html para conectar con el cerebro de Nexus.', 'ia');
+        if (API_BASE_URL.includes('URL_DE_TU_BACKEND_EN_RENDER')) {
+            const errorMessage = `¡Hola! Parece que todavía no me has conectado a mi cerebro.
+            \n\n**Acción requerida:**
+            \n1. Abre el archivo \`index.html\`.
+            \n2. Reemplaza el texto \`URL_DE_TU_BACKEND_EN_RENDER\` con la URL de tu backend desplegado en Render.`;
+            addMessage(errorMessage, 'ia');
             return;
         }
         commandInput.disabled = true;
@@ -234,6 +239,7 @@
             const data = await response.json();
             addMessage(data.speech, 'ia'); // La función addMessage ya maneja el Markdown
         } catch (error) {
+            console.error("Error en getGreeting:", error); // Log detallado para depuración
             addMessage(`No se pudo conectar con el cerebro de Nexus. Asegúrate de que el servidor esté en línea y la URL sea correcta.`, 'ia');
         } finally {
             commandInput.disabled = false;
