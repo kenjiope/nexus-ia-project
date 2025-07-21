@@ -43,7 +43,21 @@
         }
         .user-message { align-self: flex-end; }
         .ia-message { align-self: flex-start; }
-        .avatar { width: 32px; height: 32px; border-radius: 50%; background-color: #00796b; flex-shrink: 0; }
+        .avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            overflow: hidden;
+            /* Animación de "respiración" para darle vida */
+            animation: breathing 4s ease-in-out infinite;
+            transition: transform 0.2s ease-in-out;
+        }
+        .avatar img { width: 100%; height: 100%; object-fit: cover; /* Asegura que la imagen llene el círculo */ }
+        .avatar:hover {
+            transform: scale(1.1); /* Se agranda un poco al pasar el ratón */
+            animation-play-state: paused; /* Pausa la animación al interactuar */
+        }
         #command-form { display: flex; padding: 10px; border-top: 1px solid #373737; }
         #command-input { flex-grow: 1; background-color: #373737; border: none; color: #e0e0e0; padding: 12px; border-radius: 20px; outline: none; }
         #command-form button { background-color: #00796b; color: white; border: none; padding: 12px 20px; border-radius: 20px; margin-left: 10px; cursor: pointer; }
@@ -55,6 +69,10 @@
         @keyframes bounce {
             0%, 80%, 100% { transform: scale(0); }
             40% { transform: scale(1.0); }
+        }
+        @keyframes breathing {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
         }
     </style>
 </head>
@@ -97,11 +115,7 @@
         const messageContainer = document.createElement('div');
         messageContainer.className = `message-container ${sender}-message`;
 
-        if (sender === 'ia') {
-            const avatarDiv = document.createElement('div');
-            avatarDiv.className = 'avatar';
-            messageContainer.appendChild(avatarDiv);
-        }
+        if (sender === 'ia') messageContainer.appendChild(createAvatarElement());
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message';
         // Para los mensajes del usuario, usamos textContent para evitar inyección de HTML.
@@ -115,6 +129,21 @@
         messageContainer.appendChild(messageDiv);
         conversationDiv.appendChild(messageDiv);
         conversationDiv.scrollTop = conversationDiv.scrollHeight; // Auto-scroll
+    }
+
+    function createAvatarElement() {
+        const avatarDiv = document.createElement('div');
+        avatarDiv.className = 'avatar';
+
+        // Usamos DiceBear para generar un avatar SVG único basado en el sessionId
+        // Puedes cambiar el estilo cambiando 'bottts-neutral' por otros como 'adventurer', 'micah', 'fun-emoji', etc.
+        const avatarUrl = `https://api.dicebear.com/8.x/bottts-neutral/svg?seed=${sessionId}`;
+
+        const avatarImg = document.createElement('img');
+        avatarImg.src = avatarUrl;
+        avatarImg.alt = 'Avatar de la IA';
+        avatarDiv.appendChild(avatarImg);
+        return avatarDiv;
     }
 
     function addCopyButtons(container) {
@@ -145,9 +174,7 @@
     // Prepara un nuevo globo de mensaje para la IA, que se llenará poco a poco.
     const aiMessageContainer = document.createElement('div');
     aiMessageContainer.className = 'message-container ia-message';
-    const avatarDiv = document.createElement('div');
-    avatarDiv.className = 'avatar';
-    aiMessageContainer.appendChild(avatarDiv);
+    aiMessageContainer.appendChild(createAvatarElement());
     const aiMessageDiv = document.createElement('div');
     aiMessageDiv.className = 'message';
     aiMessageContainer.appendChild(aiMessageDiv);
@@ -258,6 +285,9 @@
     });
 
     // Iniciar la conversación
+    // Rellenamos el avatar del loader una vez que tenemos el sessionId
+    loader.querySelector('.avatar').appendChild(createAvatarElement().querySelector('img'));
+
     getGreeting();
 </script>
 
