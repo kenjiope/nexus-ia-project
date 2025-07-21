@@ -58,6 +58,10 @@
             transform: scale(1.1); /* Se agranda un poco al pasar el ratón */
             animation-play-state: paused; /* Pausa la animación al interactuar */
         }
+        /* Nueva clase para activar la animación de hablar */
+        .avatar.is-speaking {
+            animation: talking 0.6s ease-in-out infinite;
+        }
         #command-form { display: flex; padding: 10px; border-top: 1px solid #373737; }
         #command-input { flex-grow: 1; background-color: #373737; border: none; color: #e0e0e0; padding: 12px; border-radius: 20px; outline: none; }
         #command-form button { background-color: #00796b; color: white; border: none; padding: 12px 20px; border-radius: 20px; margin-left: 10px; cursor: pointer; }
@@ -73,6 +77,11 @@
         @keyframes breathing {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
+        }
+        /* Nueva animación para cuando la IA está "hablando" */
+        @keyframes talking {
+            0%, 100% { transform: translateY(0) scale(1.02); }
+            50% { transform: translateY(-2px) scale(1.05); }
         }
     </style>
 </head>
@@ -209,6 +218,7 @@
                     
                     if (!firstChunkReceived) {
                         loader.style.display = 'none'; // Oculta "escribiendo..."
+                        aiMessageContainer.querySelector('.avatar').classList.add('is-speaking'); // Inicia animación
                         conversationDiv.appendChild(aiMessageContainer); // Muestra el globo de mensaje
                         firstChunkReceived = true;
                     }
@@ -239,6 +249,11 @@
         commandInput.disabled = false;
         commandForm.querySelector('button').disabled = false;
         commandInput.focus();
+        // Asegurarnos de que la animación de hablar siempre se detenga.
+        const activeAvatar = aiMessageContainer.querySelector('.avatar.is-speaking');
+        if (activeAvatar) {
+            activeAvatar.classList.remove('is-speaking');
+        }
         // Salvaguarda para añadir botones si el stream termina inesperadamente
         if (firstChunkReceived) {
             addCopyButtons(aiMessageDiv);
