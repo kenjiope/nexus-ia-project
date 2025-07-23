@@ -12,7 +12,8 @@
         .message-container { display: flex; max-width: 85%; align-items: flex-end; gap: 10px; }
         .message { padding: 10px 15px; border-radius: 18px; line-height: 1.4; word-wrap: break-word; }
         .user-message .message { background-color: #373737; }
-        .ia-message .message { background-color: #004d40; color: #e0e0e0; }
+        /* Se añade position:relative para los botones de acción */
+        .ia-message .message { background-color: #004d40; color: #e0e0e0; position: relative; padding-bottom: 35px; }
         .ia-message .message pre {
             background-color: #111;
             padding: 15px;
@@ -43,6 +44,29 @@
         }
         .user-message { align-self: flex-end; }
         .ia-message { align-self: flex-start; }
+        .tts-button {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+        .tts-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .tts-button svg { width: 14px; height: 14px; fill: white; }
+        /* Estilo para cuando la IA está hablando */
+        .tts-button.speaking {
+            background-color: #00796b;
+        }
         .avatar {
             width: 32px;
             height: 32px;
@@ -98,7 +122,7 @@
         </div>
     </div>
     <form id="command-form">
-        <input type="text" id="command-input" placeholder="Habla con Nexus..." autocomplete="off">
+        <input type="text" id="command-input" placeholder="Pregúntame algo sobre código..." autocomplete="off">
         <button type="submit">Enviar</button>
     </form>
 </div>
@@ -106,6 +130,10 @@
 <script>
     // IMPORTANTE: Reemplaza esta URL cuando despliegues tu backend en Render.
     const API_BASE_URL = 'https://nexus-backend-5arg.onrender.com'; // ¡Pega aquí la URL de tu Web Service!
+
+    // Instrucción de sistema para definir la personalidad de la IA.
+    // Esto se antepone a cada mensaje del usuario para guiar el comportamiento del modelo.
+    const SYSTEM_PROMPT = "Actúa como un asistente de IA de clase mundial y experto en programación llamado Nexus. Tu especialidad es el desarrollo de software. Proporciona respuestas claras, código de alta calidad con las mejores prácticas y explicaciones detalladas. Cuando escribas código, usa siempre bloques de markdown con el lenguaje especificado (ej. ```python). Responde a la siguiente petición del usuario:\n\n";
 
     const conversationDiv = document.getElementById('conversation');
     const commandForm = document.getElementById('command-form');
@@ -133,7 +161,7 @@
             messageDiv.textContent = text;
         } else {
             messageDiv.innerHTML = marked.parse(text);
-            addCopyButtons(messageDiv);
+            finalizeIaMessage(messageDiv); // Añade botones de copiar y TTS
         }
         messageContainer.appendChild(messageDiv);
         conversationDiv.appendChild(messageDiv);
@@ -155,26 +183,64 @@
         return avatarDiv;
     }
 
-    function addCopyButtons(container) {
-        const codeBlocks = container.querySelectorAll('pre');
+    function finalizeIaMessage(messageDiv) {
+        // 1. Añadir botones de copiar a los bloques de código
+        const codeBlocks = messageDiv.querySelectorAll('pre');
         codeBlocks.forEach(block => {
+            if (block.querySelector('.copy-button')) return; // No añadir dos veces
             const button = document.createElement('button');
             button.className = 'copy-button';
             button.textContent = 'Copiar';
             button.addEventListener('click', () => {
                 const code = block.querySelector('code').innerText;
                 navigator.clipboard.writeText(code).then(() => {
-                    button.textContent = '¡Copiado!';
+                    button.textContent = 'Copiado';
                     setTimeout(() => { button.textContent = 'Copiar'; }, 2000);
                 });
             });
             block.appendChild(button);
         });
-    }
 
+        // 2. Añadir botón de Texto a Voz (TTS) para todo el mensaje
+        if (messageDiv.querySelector('.tts-button')) return; // No añadir dos veces
+
+        const textToSpeak = messageDiv.innerText;
+        if (!textToSpeak.trim()) return;
+
+        const ttsButton = document.createElement('button');
+        ttsButton.className = 'tts-button';
+        ttsButton.title = "Leer en voz alta";
+        // Icono de altavoz (SVG)
+        ttsButton.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path></svg>`;
+
+        ttsButton.addEventListener('click', () => {
+            speechSynthesis.cancel(); // Detiene cualquier lectura anterior
+
+            if (ttsButton.classList.contains('speaking')) return; // Si ya estaba hablando, solo detiene.
+
+            document.querySelectorAll('.tts-button.speaking').forEach(btn => btn.classList.remove('speaking'));
+
+            const utterance = new SpeechSynthesisUtterance(textToSpeak);
+            utterance.lang = 'es-ES'; // Asegura la pronunciación en español
+
+            utterance.onstart = () => {
+                ttsButton.classList.add('speaking');
+                ttsButton.title = "Detener";
+            };
+            utterance.onend = () => {
+                ttsButton.classList.remove('speaking');
+                ttsButton.title = "Leer en voz alta";
+            };
+
+            speechSynthesis.speak(utterance);
+        });
+        messageDiv.appendChild(ttsButton);
+    }
     // Función para interactuar con la API
     async function interactWithNexus(command) {
         addMessage(command, 'user');
+    // Preparamos el comando completo con la instrucción de sistema
+    const fullCommand = SYSTEM_PROMPT + command;
     commandInput.value = '';
     commandInput.disabled = true;
     commandForm.querySelector('button').disabled = true;
@@ -195,7 +261,7 @@
         const response = await fetch(`${API_BASE_URL}/interact-stream`, { // Usamos el nuevo endpoint
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Session-ID': sessionId },
-            body: JSON.stringify({ comando: command })
+            body: JSON.stringify({ comando: fullCommand })
         });
 
         if (!response.ok) throw new Error(`Error del servidor: ${response.status}`);
@@ -256,7 +322,7 @@
         }
         // Salvaguarda para añadir botones si el stream termina inesperadamente
         if (firstChunkReceived) {
-            addCopyButtons(aiMessageDiv);
+            finalizeIaMessage(aiMessageDiv);
         }
     }
     }
@@ -264,10 +330,12 @@
     // Obtener el saludo inicial
     async function getGreeting() {
         if (API_BASE_URL.includes('URL_DE_TU_BACKEND_EN_RENDER')) {
-            const errorMessage = `¡Hola! Parece que todavía no me has conectado a mi cerebro.
+            const errorMessage = `¡Hola! Soy Nexus, tu asistente experto en programación.
             \n\n**Acción requerida:**
+            \nPara que pueda ayudarte, necesitas conectar mi interfaz con mi cerebro.
             \n1. Abre el archivo \`index.html\`.
-            \n2. Reemplaza el texto \`URL_DE_TU_BACKEND_EN_RENDER\` con la URL de tu backend desplegado en Render.`;
+            \n2. Busca la constante \`API_BASE_URL\` en el script.
+            \n3. Reemplaza el texto placeholder con la URL de tu backend desplegado en Render.`;
             addMessage(errorMessage, 'ia');
             return;
         }
