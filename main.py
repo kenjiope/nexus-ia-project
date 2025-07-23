@@ -138,14 +138,17 @@ class Nexus:
     def _build_gemini_prompt(self, pregunta: str) -> str:
         """Construye el prompt completo para enviar a Gemini, incluyendo contexto y historial."""
         historial_texto = "\n".join([f"{'Usuario' if i % 2 == 0 else 'IA'}: {turno}" for i, turno in enumerate(self.conversation_history[-6:])])
+        # La persona ahora es establecida principalmente por el frontend (SYSTEM_PROMPT).
+        # El backend solo provee el contexto (memoria, historial) del que la persona debe ser consciente.
         prompt = (
-            f"Eres una IA servicial y amigable llamada {self.memoria.get('nombre', 'IA')}.\n"
+            f"--- CONTEXTO DE LA CONVERSACIÓN ---\n"
+            f"Tu nombre es {self.memoria.get('nombre', 'Nexus')}.\n"
             f"El nombre de tu usuario es {self.memoria.get('nombre_usuario', 'desconocido')}.\n"
-            f"Estos son algunos datos que has aprendido sobre el usuario (en JSON): {json.dumps(self.memoria.get('datos_aprendidos', {}), ensure_ascii=False, indent=2)}.\n"
-            f"Usa esta información para que tus respuestas suenen más personales, pero sin ser repetitivo.\n"
-            f"Historial reciente:\n{historial_texto}\n"
-            f"Basado en todo lo anterior, responde a la siguiente pregunta o comentario del usuario de forma natural y útil: \"{pregunta}\"\n"
-            f"IMPORTANTE: Si tu respuesta incluye código, formátalo usando bloques de código de Markdown con triple comilla invertida (```)."
+            f"Datos que has aprendido sobre el usuario: {json.dumps(self.memoria.get('datos_aprendidos', {}), ensure_ascii=False, indent=2)}.\n"
+            f"Historial reciente de la conversación:\n{historial_texto}\n"
+            f"--- FIN DEL CONTEXTO ---\n\n"
+            f"Ahora, responde a la siguiente petición del usuario, que ya incluye las instrucciones de tu persona:\n"
+            f"\"{pregunta}\""
         )
         return prompt.strip()
 
@@ -176,6 +179,19 @@ class Nexus:
             self.logger.error(f"Error al contactar a Google Gemini en modo stream: {e}", exc_info=True)
             yield "Lo siento, parece que tengo problemas para contactar a Google Gemini en este momento."
 
+    def _get_command_handler(self, comando: str):
+        """Determina si el comando coincide con un manejador de comandos interno."""
+        # Buscar en el despachador principal
+        for handler, keywords in self.command_dispatcher.items():
+            if any(keyword in comando for keyword in keywords):
+                return handler
+        
+        # Manejar el caso especial de 'ejecuta'
+        if "ejecuta" in comando:
+            return self._handle_execute_app
+            
+        return None
+
     def pensar_y_responder(self, comando: str) -> dict:
         """
         Esta es la función principal del "pensamiento".
@@ -189,18 +205,10 @@ class Nexus:
         if not self.memoria.get("nombre"):
             return self._handle_set_ia_name(comando)
 
-        # 2. Usar el despachador de comandos definido en la clase
-        for handler, keywords in self.command_dispatcher.items():
-            for keyword in keywords:
-                if keyword in comando:
-                    # Los handlers ahora devuelven un diccionario de acción
-                    return handler(comando)
-        
-        # El comando 'ejecuta' es especial porque solo funciona en Windows.
-        if "ejecuta" in comando:
-            return self._handle_execute_app(comando)
+        handler = self._get_command_handler(comando)
+        if handler:
+            return handler(comando)
 
-        # 3. Si no es un comando conocido, se trata como una consulta general a Gemini.
         self.logger.debug(f"Comando no reconocido como función interna. Enviando a Gemini: '{comando}'")
         speech = self.pensar_con_gemini(comando)
         return {"speech": speech, "action": {"type": "none"}}
@@ -234,14 +242,23 @@ class Nexus:
     def _handle_remember_fact(self, comando):
         dato_a_recordar = comando.replace("recuerda que", "", 1).strip()
         try:
-            # Buscar la primera aparición de " es " o " son " para más flexibilidad
-            separador = " es " if " es " in dato_a_recordar else " son "
-            clave, valor = dato_a_recordar.split(separador, 1)
-            self.memoria["datos_aprendidos"][clave.strip()] = valor.strip()
-            self._guardar_memoria()
-            speech = f"Entendido. He guardado que '{clave.strip()}' es '{valor.strip()}'."
-        except (ValueError, KeyError):
-            speech = "Para que recuerde algo, por favor usa el formato: 'recuerda que [dato] es [valor]'."
+            # Ampliamos los posibles separadores para entender más frases
+            separadores = [" es ", " son ", " están en ", " está en "]
+            separador_encontrado = None
+            for sep in separadores:
+                if sep in dato_a_recordar:
+                    separador_encontrado = sep
+                    break
+            
+            if separador_encontrado:
+                clave, valor = dato_a_recordar.split(separador_encontrado, 1)
+                self.memoria["datos_aprendidos"][clave.strip()] = valor.strip()
+                self._guardar_memoria()
+                speech = f"Entendido. He guardado que '{clave.strip()}'{separador_encontrado}'{valor.strip()}'."
+            else:
+                speech = "Para que recuerde algo, por favor usa un formato como '[dato] es [valor]' o '[objeto] está en [lugar]'."
+        except ValueError:
+            speech = "No he podido entender qué quieres que recuerde. Intenta con un formato más simple."
         return {"speech": speech, "action": {"type": "none"}}
 
     def _handle_recall_fact(self, comando):
@@ -312,15 +329,15 @@ class Nexus:
 
     def saludar(self):
         """Genera el saludo inicial de la IA."""
-        nombre_recordado = self.memoria.get("nombre")
+        nombre_recordado = self.memoria.get("nombre", "Nexus") # Por defecto Nexus
         nombre_usuario_recordado = self.memoria.get("nombre_usuario")
-        if nombre_recordado:
-            if nombre_usuario_recordado:
-                return f"¡Hola de nuevo, {nombre_usuario_recordado}! Soy {nombre_recordado} y estoy lista para ayudarte."
-            else:
-                return f"¡Hola de nuevo! Soy {nombre_recordado}. Estoy lista para ayudarte."
+
+        saludo_base = f"Hola, soy {nombre_recordado}, tu asistente experto en programación."
+
+        if nombre_usuario_recordado:
+            return f"¡Hola de nuevo, {nombre_usuario_recordado}! {saludo_base} ¿En qué reto de código te ayudo hoy?"
         else:
-            return "Hola, soy tu nueva IA. Aún no tengo un nombre. Por favor, dime cómo quieres llamarme."
+            return f"{saludo_base} Estoy listo para resolver tus dudas de programación. ¿Cómo te llamas?"
 
 # --- INICIO DE LA API CON FLASK ---
 from flask import Flask, request, jsonify, Response, stream_with_context
@@ -434,16 +451,7 @@ def interactuar_stream():
         nexus_instance.logger.info(f"Comando de stream recibido de [{session_id}]: '{comando}'")
         nexus_instance.conversation_history.append(comando)
 
-        # Comprobar si es un comando de acción específico
-        matched_handler = None
-        for handler, keywords in nexus_instance.command_dispatcher.items():
-            if any(keyword in comando for keyword in keywords):
-                matched_handler = handler
-                break
-        
-        if "ejecuta" in comando:
-            matched_handler = nexus_instance._handle_execute_app
-
+        matched_handler = nexus_instance._get_command_handler(comando)
         if matched_handler:
             # Si es un comando de acción, se ejecuta y se envía una única respuesta
             response_dict = matched_handler(comando)
