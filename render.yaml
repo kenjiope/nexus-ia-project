@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: mi-ia # Puedes cambiar este nombre si lo deseas
+    env: python
+    plan: free # O tu plan actual (ej. "starter")
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn --workers 4 --bind 0.0.0.0:$PORT main:app"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11 # Te recomiendo usar una versión reciente y estable de Python
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nombre-de-tu-db-en-render # ¡IMPORTANTE! Cambia esto por el nombre de tu base de datos en Render
+          property: connectionString
+      - key: GOOGLE_API_KEY
+        sync: false # El valor lo debes poner manualmente en la sección "Environment" de Render
