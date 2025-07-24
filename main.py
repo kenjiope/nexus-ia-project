@@ -29,6 +29,9 @@ def setup_global_logger(name="NexusApp"):
     logger.setLevel(logging.DEBUG)
     return logger
 
+# Logger para la aplicación Flask en sí.
+app_logger = setup_global_logger()
+
 # --- DATABASE SETUP ---
 # Importar la configuración de la base de datos desde el archivo centralizado
 from database import SessionLocal, MemoryDB, DATABASE_URL
@@ -370,9 +373,6 @@ CORS(app)
 
 # Creamos un administrador global para todas las instancias de Nexus.
 instance_manager = NexusInstanceManager()
-
-# Logger para la aplicación Flask en sí.
-app_logger = setup_global_logger()
 
 @app.route('/', methods=['GET'])
 def health_check():
