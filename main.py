@@ -344,18 +344,24 @@ from flask import Flask, request, jsonify, Response, stream_with_context
 
 # Para permitir peticiones desde el navegador (necesario para la app web)
 from flask_cors import CORS # type: ignore
+import cachetools # Para gestionar las instancias de forma eficiente
 
 class NexusInstanceManager:
     """Gestiona múltiples instancias de la IA, una por sesión."""
     def __init__(self):
-        self._instances = {}
+        # Usamos una caché LRU (Least Recently Used) para evitar fugas de memoria.
+        # Almacenará hasta 100 sesiones activas. Las más antiguas e inactivas se eliminarán.
+        self._instances = cachetools.LRUCache(maxsize=100)
 
     def get_or_create_instance(self, session_id: str) -> Nexus:
         """Obtiene una instancia existente o crea una nueva si no existe."""
-        if session_id not in self._instances:
-            print(f"Creando nueva instancia de Nexus para la sesión: {session_id}")
-            self._instances[session_id] = Nexus(session_id=session_id)
-        return self._instances[session_id]
+        try:
+            return self._instances[session_id]
+        except KeyError:
+            app_logger.info(f"Creando nueva instancia de Nexus para la sesión: {session_id}")
+            instance = Nexus(session_id=session_id)
+            self._instances[session_id] = instance
+            return instance
 
 app = Flask(__name__)
 
@@ -478,7 +484,9 @@ def interactuar_stream():
 @app.route('/admin/sessions', methods=['GET'])
 def get_active_sessions():
     """Endpoint de administración para ver las sesiones activas."""
-    active_sessions = list(instance_manager._instances.keys())
+    # Como ahora usamos una caché, accedemos a las claves de una manera segura
+    # El orden puede no estar garantizado, así que lo convertimos a lista.
+    active_sessions = list(instance_manager._instances)
     return jsonify({"active_sessions": active_sessions, "count": len(active_sessions)})
 
 @app.errorhandler(404)
